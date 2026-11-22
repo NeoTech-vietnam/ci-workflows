@@ -1,2 +1,4 @@
 /hello_world/
 /smoke-build.log
+__pycache__/
+*.pyc
