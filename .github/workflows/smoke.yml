@@ -1,0 +1,38 @@
+name: ESP-IDF runner smoke test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  esp32s3:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compile SDK hello_world for ESP32-S3
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -e HOME=/tmp -e IDF_GIT_SAFE_DIR=/work:/opt/esp/idf \
+            -v "$GITHUB_WORKSPACE:/work" -w /work espressif/idf:v6.0.1 \
+            bash -c 'cp -r "$IDF_PATH/examples/get-started/hello_world" hello_world; cd hello_world; idf.py set-target esp32s3; idf.py build' \
+            2>&1 | tee smoke-build.log
+      - name: Upload infrastructure smoke-test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: esp-idf-runner-smoke
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            smoke-build.log
+            hello_world/build/hello_world.bin
