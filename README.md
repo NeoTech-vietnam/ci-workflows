@@ -63,6 +63,31 @@ active write. The label represents one dedicated board; do not assign it to
 unrelated runners. See the calling project's `docs/self-hosted-flashing.md` for
 Ubuntu registration, service, serial-access and dispatch instructions.
 
+## Module reference integration
+
+Call `.github/workflows/module-integration.yml@v1.3.0` from a module's push/manual
+workflow. The module supplies `ci_targets.yml` (a `ref_projects` list of
+`repository`, `branch`, `package`) and secret `INTEGRATION_DISPATCH_TOKEN` with
+Actions-write and Contents-read access to the selected integration repositories.
+Only development branches are accepted, and package repository mappings must
+match the pushing module. The shared composite action dispatches the dedicated
+`module-integration.yml` project receiver through GitHub API version 2026-03-10,
+uses the returned run IDs, waits for completion and propagates failure. JSON
+results and run links are published on the module run. GitHub grants scoped
+download access to this private shared action through the organization access
+setting below; the dispatch token needs no access to ci-workflows.
+
+Project receivers call `esp-idf.yml@v1.3.0` with `module-mode: true` and
+`source-repository`. Module mode rejects main/default branches and tags before
+fetching, then invokes the caller's `TOOLCONF/module_ci.py` to validate the package
+and exact source SHA against its manifest. Other esp-idf inputs remain unchanged.
+Normal callers default to module-mode false. Existing v1.0.0/v1.1.0/v1.2.0 tags
+remain unchanged.
+
+Run `python -m unittest discover -s test -p 'test_*.py'` for sender policies;
+`module-policy-tests.yml` runs these checks on GitHub. See the product's
+`docs/module-integration.md` for the WifiStack pilot and token activation.
+
 ## Private workflow access
 
 Settings → Actions → General → Access must allow other repositories in the

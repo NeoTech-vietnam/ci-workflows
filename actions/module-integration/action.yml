@@ -1,0 +1,18 @@
+name: Dispatch module reference builds
+description: Validate development targets, dispatch exact module commits, and follow integration results
+inputs:
+  config:
+    description: Reference-project YAML in the calling module repository
+    default: ci_targets.yml
+  token:
+    description: Actions-write and Contents-read credential for the integration repositories
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        CONFIG_PATH: ${{ inputs.config }}
+        DISPATCH_TOKEN: ${{ inputs.token }}
+      run: python "$ACTION_PATH/dispatch.py"
