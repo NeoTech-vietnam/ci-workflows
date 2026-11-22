@@ -118,6 +118,31 @@ class ModuleIntegrationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             dispatch.follow_builds(builds, lambda path: dict(self.api(path), head_branch="main"))
 
+    def test_newly_dispatched_run_can_be_temporarily_invisible(self):
+        builds = dispatch.dispatch_builds([TARGET], SOURCE, SHA, self.api)
+        calls = []
+        def api(path):
+            calls.append(path)
+            if len(calls) == 1:
+                raise dispatch.GitHubError(404, "GET")
+            return self.api(path)
+        self.assertTrue(dispatch.follow_builds(builds, api, sleep=lambda _: None))
+        self.assertEqual(len(calls), 2)
+
+    def test_missing_run_retry_is_bounded_and_permission_errors_fail_immediately(self):
+        for status in (404, 403):
+            builds = dispatch.dispatch_builds([TARGET], SOURCE, SHA, self.api)
+            elapsed = [0]
+            calls = []
+            def api(path):
+                calls.append(path)
+                raise dispatch.GitHubError(status, "GET")
+            def sleep(_):
+                elapsed[0] += 61
+            with self.subTest(status=status), self.assertRaises(dispatch.GitHubError):
+                dispatch.follow_builds(builds, api, sleep=sleep, clock=lambda: elapsed[0])
+            self.assertEqual(len(calls), 2 if status == 404 else 1)
+
 
 if __name__ == "__main__":
     unittest.main()

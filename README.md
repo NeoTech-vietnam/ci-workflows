@@ -65,19 +65,22 @@ Ubuntu registration, service, serial-access and dispatch instructions.
 
 ## Module reference integration
 
-Call `.github/workflows/module-integration.yml@v1.3.0` from a module's push/manual
+Call `.github/workflows/module-integration.yml@v1.3.1` from a module's push/manual
 workflow. The module supplies `ci_targets.yml` (a `ref_projects` list of
 `repository`, `branch`, `package`) and secret `INTEGRATION_DISPATCH_TOKEN` with
 Actions-write and Contents-read access to the selected integration repositories.
 Only development branches are accepted, and package repository mappings must
 match the pushing module. The shared composite action dispatches the dedicated
 `module-integration.yml` project receiver through GitHub API version 2026-03-10,
-uses the returned run IDs, waits for completion and propagates failure. JSON
+uses the returned run IDs, waits for completion and propagates failure.
+Status lookup retries initial run-not-found responses for up to 60 seconds because
+new dispatch IDs can briefly precede run visibility; permission errors fail
+immediately. JSON
 results and run links are published on the module run. GitHub grants scoped
 download access to this private shared action through the organization access
 setting below; the dispatch token needs no access to ci-workflows.
 
-Project receivers call `esp-idf.yml@v1.3.0` with `module-mode: true` and
+Project receivers call `esp-idf.yml@v1.3.1` with `module-mode: true` and
 `source-repository`. Module mode rejects main/default branches and tags before
 fetching, then invokes the caller's `TOOLCONF/module_ci.py` to validate the package
 and exact source SHA against its manifest. Other esp-idf inputs remain unchanged.

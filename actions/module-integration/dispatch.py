@@ -30,6 +30,12 @@ def branch_allowed(branch):
             and ".." not in branch and "//" not in branch and not branch.endswith("/"))
 
 
+class GitHubError(ValueError):
+    def __init__(self, status, method):
+        super().__init__(f"GitHub API {method} returned HTTP {status}; check target, branch and token permissions")
+        self.status = status
+
+
 class GitHub:
     def __init__(self, token):
         require(bool(token), "Add repository Actions secret INTEGRATION_DISPATCH_TOKEN; see module CI setup")
@@ -46,7 +52,7 @@ class GitHub:
                 content = response.read()
                 return json.loads(content) if content else None
         except HTTPError as error:
-            raise ValueError(f"GitHub API {method} returned HTTP {error.code}; check target, branch and token permissions") from None
+            raise GitHubError(error.code, method) from None
         except URLError:
             raise ValueError("GitHub API connection failed; check runner network/proxy") from None
 
@@ -107,13 +113,20 @@ def dispatch_builds(targets, source_repo, source_sha, api, builds=None):
 
 
 def follow_builds(builds, api, seconds=2100, sleep=time.sleep, clock=time.monotonic):
-    deadline = clock() + seconds
+    started = clock()
+    deadline = started + seconds
     while any(build["conclusion"] is None for build in builds):
         require(clock() < deadline, "Timed out waiting for reference builds; see their run links")
         for build in builds:
             if build["conclusion"] is not None:
                 continue
-            run = api(f"repos/{build['repository']}/actions/runs/{build['run_id']}")
+            try:
+                run = api(f"repos/{build['repository']}/actions/runs/{build['run_id']}")
+            except GitHubError as error:
+                # A dispatch ID can become readable shortly after the POST returns.
+                if error.status == 404 and "project_sha" not in build and clock() < started + 60:
+                    continue
+                raise
             require(run["head_branch"] == build["branch"] and run["event"] == "workflow_dispatch",
                     "Dispatched run does not match the selected development branch")
             build["project_sha"] = run["head_sha"]
