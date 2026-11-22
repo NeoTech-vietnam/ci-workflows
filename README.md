@@ -30,6 +30,27 @@ C compiler. Firmware builds run inside the official SDK container with a matchin
 user ID, writable temporary HOME, and explicit Git safe directories. Output is
 uploaded for seven days, including resolved module SHAs, logs, firmware and map.
 
+## Artifact flashing workflow contract
+
+Call `.github/workflows/flash-esp32.yml@v1.1.0` from a manually dispatched main
+workflow with `contents: read` and `actions: read` permissions. Inputs are
+`source-run-id` (empty selects the latest successful main integration build),
+`serial-port` (required explicit Linux USB serial path), and `baud` (default
+`460800`; also supports `115200` and `921600`). No additional secret is required.
+
+The caller provides `TOOLCONF/hardware_flash.py`, its `integration.yml` build
+workflow and the `firmware-esp32s3-<run_id>` artifact contract. Selection runs on
+GitHub-hosted Ubuntu. Flashing runs on `[self-hosted, Linux, neocam-flash]` and
+uses `$HOME/.venvs/neocam-flash/bin/python` with esptool 5.6.0. It accepts only
+completed successful main push/manual builds from the calling repository.
+
+The self-hosted job downloads the selected artifact by ID, validates its manifest,
+writes/verifies/resets the ESP32-S3, and uploads a log/provenance report. It never
+rebuilds or consumes the module token. Per-board concurrency does not cancel an
+active write. The label represents one dedicated board; do not assign it to
+unrelated runners. See the calling project's `docs/self-hosted-flashing.md` for
+Ubuntu registration, service, serial-access and dispatch instructions.
+
 ## Private workflow access
 
 Settings → Actions → General → Access must allow other repositories in the
@@ -42,7 +63,7 @@ passes the separate read-only module credential explicitly.
 Published tags such as `v1.0.0` are immutable by convention. Changes get a new
 workflow version; callers select when to upgrade.
 
-Run official `actionlint` against both workflow files before publication.
+Run official `actionlint` against all workflow files before publication.
 `smoke.yml` also builds the SDK's stock hello_world example for ESP32-S3 on a
 GitHub runner. This proves runner/container/toolchain availability independently
 of product credentials; it is not a NeoCam product or hardware validation.

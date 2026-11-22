@@ -1,0 +1,103 @@
+name: Reusable ESP32 artifact flashing
+
+on:
+  workflow_call:
+    inputs:
+      source-run-id:
+        description: Successful main integration run ID; empty selects the latest successful run
+        type: string
+        default: ''
+      serial-port:
+        description: Explicit Linux serial device path for the attached board
+        type: string
+        required: true
+      baud:
+        type: string
+        default: '460800'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  select:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      run-id: ${{ steps.source.outputs.run_id }}
+      artifact-id: ${{ steps.source.outputs.artifact_id }}
+      source-sha: ${{ steps.source.outputs.source_sha }}
+    steps:
+      - name: Require manual main dispatch and configured board
+        shell: bash
+        env:
+          SERIAL_PORT: ${{ inputs.serial-port }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" == refs/heads/main ]] || { echo 'Dispatch this workflow on main only'; exit 1; }
+          [[ -n "$SERIAL_PORT" ]] || { echo 'Set repository Actions variable NEOCAM_SERIAL_PORT before flashing'; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Select successful main firmware
+        id: source
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source-run-id }}
+        run: python TOOLCONF/hardware_flash.py select --run-id "$SOURCE_RUN_ID"
+
+  flash:
+    needs: select
+    runs-on: [self-hosted, Linux, neocam-flash]
+    timeout-minutes: 10
+    concurrency:
+      group: neocam-esp32s3-board
+      cancel-in-progress: false
+    defaults:
+      run:
+        shell: bash
+    env:
+      SOURCE_RUN_ID: ${{ needs.select.outputs.run-id }}
+      SOURCE_SHA: ${{ needs.select.outputs.source-sha }}
+      SERIAL_PORT: ${{ inputs.serial-port }}
+      BAUD: ${{ inputs.baud }}
+    steps:
+      - name: Checkout trusted flashing tools
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Download selected firmware without rebuilding
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.select.outputs.run-id }}
+          artifact-ids: ${{ needs.select.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/neocam-firmware-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Flash and verify attached ESP32-S3
+        env:
+          ARTIFACT_ROOT: ${{ runner.temp }}/neocam-firmware-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          mkdir -p _out
+          python="$HOME/.venvs/neocam-flash/bin/python"
+          [[ -x "$python" ]] || { echo 'Install the neocam-flash Python environment; see docs/self-hosted-flashing.md'; exit 1; }
+          "$python" TOOLCONF/hardware_flash.py flash \
+            --artifact-root "$ARTIFACT_ROOT" --port "$SERIAL_PORT" --baud "$BAUD" \
+            --source-run "$SOURCE_RUN_ID" --source-sha "$SOURCE_SHA" --execute \
+            2>&1 | tee _out/hardware-flash.log
+      - name: Upload flashing report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hardware-flash-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 14
+          if-no-files-found: warn
+          path: |
+            _out/hardware-flash.json
+            _out/hardware-flash.log
