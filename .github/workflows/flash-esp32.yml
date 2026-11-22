@@ -14,6 +14,14 @@ on:
       baud:
         type: string
         default: '460800'
+      monitor-seconds:
+        description: Bounded serial capture after flashing; 0 disables monitoring
+        type: string
+        default: '30'
+      monitor-baud:
+        description: Firmware console baud rate, independent of flashing speed
+        type: string
+        default: '115200'
 
 permissions:
   contents: read
@@ -32,10 +40,14 @@ jobs:
         shell: bash
         env:
           SERIAL_PORT: ${{ inputs.serial-port }}
+          MONITOR_SECONDS: ${{ inputs.monitor-seconds }}
+          MONITOR_BAUD: ${{ inputs.monitor-baud }}
         run: |
           set -euo pipefail
           [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" == refs/heads/main ]] || { echo 'Dispatch this workflow on main only'; exit 1; }
           [[ -n "$SERIAL_PORT" ]] || { echo 'Set repository Actions variable NEOCAM_SERIAL_PORT before flashing'; exit 1; }
+          [[ "$MONITOR_SECONDS" =~ ^(0|15|30|60|120|300)$ ]] || { echo 'Unsupported monitor duration'; exit 1; }
+          [[ "$MONITOR_BAUD" =~ ^(115200|230400|460800|921600)$ ]] || { echo 'Unsupported monitor baud rate'; exit 1; }
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -53,7 +65,7 @@ jobs:
   flash:
     needs: select
     runs-on: [self-hosted, Linux, neocam-flash]
-    timeout-minutes: 10
+    timeout-minutes: 15
     concurrency:
       group: neocam-esp32s3-board
       cancel-in-progress: false
@@ -65,11 +77,19 @@ jobs:
       SOURCE_SHA: ${{ needs.select.outputs.source-sha }}
       SERIAL_PORT: ${{ inputs.serial-port }}
       BAUD: ${{ inputs.baud }}
+      MONITOR_SECONDS: ${{ inputs.monitor-seconds }}
+      MONITOR_BAUD: ${{ inputs.monitor-baud }}
     steps:
       - name: Checkout trusted flashing tools
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Prepare pinned flashing and monitoring tools
+        run: |
+          set -euo pipefail
+          python="$HOME/.venvs/neocam-flash/bin/python"
+          [[ -x "$python" ]] || { echo 'Install the neocam-flash Python environment; see docs/self-hosted-flashing.md'; exit 1; }
+          "$python" -m pip install -r TOOLCONF/requirements-flash.txt
       - name: Download selected firmware without rebuilding
         uses: actions/download-artifact@v4
         with:
@@ -91,6 +111,24 @@ jobs:
             --artifact-root "$ARTIFACT_ROOT" --port "$SERIAL_PORT" --baud "$BAUD" \
             --source-run "$SOURCE_RUN_ID" --source-sha "$SOURCE_SHA" --execute \
             2>&1 | tee _out/hardware-flash.log
+      - name: Monitor ESP32-S3 serial output
+        if: inputs.monitor-seconds != '0'
+        env:
+          ARTIFACT_ROOT: ${{ runner.temp }}/neocam-firmware-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          mkdir -p _out
+          python="$HOME/.venvs/neocam-flash/bin/python"
+          # IDF Monitor resets on connection, then its command stream exits after sleep.
+          # The outer timeout also bounds reconnect waits or an unresponsive monitor.
+          printf 'sleep %s\n' "$MONITOR_SECONDS" | \
+            timeout --signal=TERM --kill-after=5s "$((MONITOR_SECONDS + 30))s" \
+            "$python" -u -m esp_idf_monitor \
+              --port "$SERIAL_PORT" --baud "$MONITOR_BAUD" --target esp32s3 \
+              --timestamps --disable-auto-color --disable-address-decoding \
+              --decode-coredumps disable --decode-panic disable \
+              "$ARTIFACT_ROOT/_build/esp32s3/neocam_csw.elf" \
+            2>&1 | tee _out/serial-monitor.log
       - name: Upload flashing report
         if: always()
         uses: actions/upload-artifact@v4
@@ -101,3 +139,4 @@ jobs:
           path: |
             _out/hardware-flash.json
             _out/hardware-flash.log
+            _out/serial-monitor.log

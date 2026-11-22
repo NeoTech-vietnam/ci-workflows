@@ -32,20 +32,32 @@ uploaded for seven days, including resolved module SHAs, logs, firmware and map.
 
 ## Artifact flashing workflow contract
 
-Call `.github/workflows/flash-esp32.yml@v1.1.0` from a manually dispatched main
+Call `.github/workflows/flash-esp32.yml@v1.2.0` from a manually dispatched main
 workflow with `contents: read` and `actions: read` permissions. Inputs are
 `source-run-id` (empty selects the latest successful main integration build),
 `serial-port` (required explicit Linux USB serial path), and `baud` (default
-`460800`; also supports `115200` and `921600`). No additional secret is required.
+`460800`; also supports `115200` and `921600`). `monitor-seconds` defaults to
+`30` and accepts `0` (skip), `15`, `30`, `60`, `120` and `300`. `monitor-baud`
+defaults to `115200` and also accepts `230400`, `460800` and `921600`.
+No additional secret is required.
 
-The caller provides `TOOLCONF/hardware_flash.py`, its `integration.yml` build
-workflow and the `firmware-esp32s3-<run_id>` artifact contract. Selection runs on
+The caller provides `TOOLCONF/hardware_flash.py`, `TOOLCONF/requirements-flash.txt`,
+its `integration.yml` build workflow and the `firmware-esp32s3-<run_id>` artifact
+contract. Selection runs on
 GitHub-hosted Ubuntu. Flashing runs on `[self-hosted, Linux, neocam-flash]` and
-uses `$HOME/.venvs/neocam-flash/bin/python` with esptool 5.6.0. It accepts only
+uses `$HOME/.venvs/neocam-flash/bin/python` with esptool 5.6.0 and IDF Monitor
+1.11.0, installed from the caller's pinned requirements. It accepts only
 completed successful main push/manual builds from the calling repository.
 
 The self-hosted job downloads the selected artifact by ID, validates its manifest,
-writes/verifies/resets the ESP32-S3, and uploads a log/provenance report. It never
+writes/verifies/resets the ESP32-S3, then runs Espressif's monitor in command-stream
+mode for the selected duration. The monitor resets the board on connection to
+capture a fresh boot, streams timestamped output and exits normally when its
+sleep command finishes. A duration plus 30-second watchdog bounds reconnect or
+shutdown hangs and fails the step if exceeded. Raw serial output is uploaded as
+`serial-monitor.log` alongside the flash report. Address/panic/core-dump decoding
+is disabled because the flashing runner does not require the SDK/toolchain.
+This capture does not assert application health. The workflow never
 rebuilds or consumes the module token. Per-board concurrency does not cancel an
 active write. The label represents one dedicated board; do not assign it to
 unrelated runners. See the calling project's `docs/self-hosted-flashing.md` for
