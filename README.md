@@ -65,12 +65,14 @@ Ubuntu registration, service, serial-access and dispatch instructions.
 
 ## Module reference integration
 
-Call `.github/workflows/module-integration.yml@v1.3.1` from a module's push/manual
+Call `.github/workflows/module-integration.yml@v1.3.2` from a module's push/manual
 workflow. The module supplies `ci_targets.yml` (a `ref_projects` list of
 `repository`, `branch`, `package`) and secret `INTEGRATION_DISPATCH_TOKEN` with
 Actions-write and Contents-read access to the selected integration repositories.
-Only development branches are accepted, and package repository mappings must
-match the pushing module. The shared composite action dispatches the dedicated
+Any module source branch, including main/master, is accepted; source tags are
+rejected. Integration targets must remain development branches, and package
+repository mappings must match the pushing module. The shared composite action
+dispatches the dedicated
 `module-integration.yml` project receiver through GitHub API version 2026-03-10,
 uses the returned run IDs, waits for completion and propagates failure.
 Status lookup retries initial run-not-found responses for up to 60 seconds because

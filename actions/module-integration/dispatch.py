@@ -158,8 +158,8 @@ def main():
     try:
         require(os.environ.get("GITHUB_EVENT_NAME") in ("push", "workflow_dispatch"), "Unsupported module trigger")
         source_ref = os.environ.get("GITHUB_REF", "")
-        require(source_ref.startswith("refs/heads/") and source_ref not in ("refs/heads/main", "refs/heads/master"),
-                "Run module reference CI from a development branch, not main/master or a tag")
+        require(source_ref.startswith("refs/heads/") and source_ref != "refs/heads/",
+                "Run module reference CI from a branch, not a tag")
         root = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
         path = (root / os.environ.get("CONFIG_PATH", "ci_targets.yml")).resolve()
         require(path.is_relative_to(root), "Config path escapes the module repository")

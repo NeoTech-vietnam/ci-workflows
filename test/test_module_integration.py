@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import yaml
 
@@ -43,6 +44,32 @@ class ModuleIntegrationTests(unittest.TestCase):
     def load(self, target):
         self.path.write_text(yaml.safe_dump({"ref_projects": [target]}), encoding="utf-8")
         return dispatch.load_targets(self.path)
+
+    def test_all_source_branches_can_dispatch_to_a_development_target(self):
+        self.load(TARGET)
+        for branch in ("main", "master", "feat/wifistack"):
+            self.posts.clear()
+            with self.subTest(branch=branch), patch.dict(dispatch.os.environ, {
+                "GITHUB_EVENT_NAME": "push", "GITHUB_REF": f"refs/heads/{branch}",
+                "GITHUB_WORKSPACE": self.config.name, "GITHUB_REPOSITORY": SOURCE,
+                "GITHUB_SHA": SHA, "DISPATCH_TOKEN": "test-only",
+            }, clear=True), patch.object(dispatch, "GitHub", return_value=self.api), \
+                    patch.object(dispatch, "write_report"):
+                self.assertEqual(dispatch.main(), 0)
+                self.assertEqual(self.posts, [{"ref": TARGET["branch"], "inputs": {
+                    "package": TARGET["package"], "package_ref": SHA, "source_repository": SOURCE}}])
+
+    def test_non_branch_source_refs_cannot_dispatch(self):
+        self.load(TARGET)
+        for ref in ("refs/tags/v1.0.0", "refs/pull/1/merge", "refs/heads/", ""):
+            with self.subTest(ref=ref), patch.dict(dispatch.os.environ, {
+                "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF": ref,
+                "GITHUB_WORKSPACE": self.config.name,
+            }, clear=True), patch.object(dispatch, "GitHub") as api, \
+                    patch.object(dispatch, "write_report"):
+                self.assertEqual(dispatch.main(), 1)
+                api.assert_not_called()
+        self.assertEqual(self.posts, [])
 
     def test_reject_main_aliases_tags_shas_and_invalid_targets(self):
         for branch in ("main", "master", "refs/heads/main", "refs/tags/feat/test", SHA,

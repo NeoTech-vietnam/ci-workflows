@@ -25,7 +25,7 @@ jobs:
       - name: Install YAML reader
         run: python -m pip install 'PyYAML>=6.0,<7'
       - name: Dispatch and follow reference builds
-        uses: NeoTech-vietnam/ci-workflows/actions/module-integration@v1.3.1
+        uses: NeoTech-vietnam/ci-workflows/actions/module-integration@v1.3.2
         with:
           config: ${{ inputs.config }}
           token: ${{ secrets.INTEGRATION_DISPATCH_TOKEN }}
